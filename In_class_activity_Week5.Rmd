@@ -1,0 +1,571 @@
+---
+title: "In_class_activity_Week5"
+output: html_document
+date: "2026-02-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## In-class Activity
+
+### Activity 2
+
+```{r}
+set.seed(123)
+
+steps_to_hit_B <- function(B, shape, scale, max_t) {
+  # start point
+  t = 0
+  
+  # sample max_t Gamma random numbers per Gabe's suggestion in class
+  X_ts <- rgamma(n=max_t, shape=shape, scale=scale)
+  # use built-in cumsum function to get cumulative sum at each step
+  progress <- cumsum(X_ts)
+  
+  # check which step hits B first and returns Inf if not reached
+  if (!is.na(which(progress >= B)[1])) {
+    return(which(progress >= B)[1])
+  } else {
+    return(Inf)
+  }
+}
+```
+
+```{r}
+mc_estimate_p <- function(tau, B, shape, scale, mc_sim_n, max_t) {
+  if (!is.numeric(tau) || length(tau) != 1 || is.na(tau) || tau < 1) {
+    stop("tau must be s.t. tau >= 1.")
+  }
+  if (!is.numeric(max_t) || length(max_t) != 1 || is.na(max_t) || max_t < tau) {
+    stop("max_t must be s.t. max_t >= tau.")
+  }
+  # 
+  # simulate probability
+  mc_sims <- replicate(mc_sim_n, steps_to_hit_B(B, shape, scale, max_t))
+  hits <- (mc_sims <= tau)
+  hits <- mean(hits)
+  return(hits)
+}
+```
+
+
+#### Simulation 2.1
+
+```{r}
+set.seed(123)
+
+alpha <- 1/20
+beta  <- 40
+B     <- 250
+tau   <- 30
+
+mc_sim_n <- 1000
+estimates_100 <- replicate(100, mc_estimate_p(tau, B, alpha, beta, mc_sim_n, max_t = tau))
+
+avg_est <- mean(estimates_100)
+var_est <- var(estimates_100)
+avg_est
+var_est
+```
+
+#### Simulation 2.2, grid of simulations
+
+```{r}
+mc_grid <- c(1000, 2000, 4000, 8000, 16000, 32000, 64000)
+
+set.seed(123)
+summary_df <- do.call(rbind, lapply(mc_grid, function(n) {
+  ests <- replicate(100, mc_estimate_p(tau, B, alpha, beta, n, max_t = tau))
+  data.frame(
+    mc_sim_n = n,
+    mean_est = mean(ests),
+    sd_est   = sd(ests),
+    var_est  = var(ests)
+  )
+}))
+
+print(summary_df)
+```
+
+#### Plot simulation 2.2
+
+```{r}
+plot(summary_df$mc_sim_n, summary_df$mean_est,
+     log = "x", pch = 16, ylim=c(0.003,0.009),
+     xlab = "Number of MC simulations (mc_sim_n, log scale)",
+     ylab = "Estimated P(T <= 30)")
+
+arrows(summary_df$mc_sim_n,
+       summary_df$mean_est - summary_df$sd_est,
+       summary_df$mc_sim_n,
+       summary_df$mean_est + summary_df$sd_est,
+       angle = 90, code = 3, length = 0.05)
+```
+
+We can see that the variance is very large when the number of simulations is small. It gradually becomes more stable with smaller variance once the simulations increase.
+
+
+
+### Activity 3
+
+Notes: Write out the expectation and see the tilted distribution is still gamma, need to do some derivations first
+
+We try to write out the objective expecatation (second-moment) function, name it $G(\theta)$
+
+First, we let $X_1,\dots,X_T$ be i.i.d. with density $X_t \sim \Gamma(\alpha,\beta)$). Define
+
+$$
+S_T=\sum_{t=1}^T X_t,
+$$
+and the rare-event probability of interest
+$$
+p = \mathbb P(S_T \ge B).
+$$
+
+Let the mgf of $X$ under the **original** law $\mathbb P$ be
+
+$$
+M(\theta)=\mathbb E[e^{\theta X}].
+$$
+
+Then we look at the tilted density: 
+
+$$
+f_\theta(x)=\frac{e^{\theta x} f(x)}{M(\theta)}.
+$$
+
+Then for the joint density of all the iid variables $(X_1,\dots,X_T)$,
+
+$$
+f_\theta(x_1,\dots,x_T)
+=\prod_{t=1}^T f_\theta(x_t)
+=\prod_{t=1}^T \frac{e^{\theta x_t} f(x_t)}{M(\theta)}
+=\frac{\exp\!\left(\theta\sum_{t=1}^T x_t\right)}{M(\theta)^T}\prod_{t=1}^T f(x_t)
+=\frac{e^{\theta S_T}}{M(\theta)^T} f(x_1,\dots,x_T).
+$$
+
+
+The question tells us the second moment is:
+
+$$
+G(\theta)
+= \mathbb{E}\!\left[\mathbf{1}\{S_T \ge B\}\, e^{-\theta S_T}\, M(\theta)^T\right],
+\qquad
+S_T=\sum_{t=1}^T X_t,
+\qquad
+S_T\sim \Gamma(T\alpha,\beta),
+$$
+
+where $M(\theta)=(1-\beta\theta)^{-\alpha}$ is the mgf of $X_t\sim\Gamma(\alpha,\beta)$ (shape–scale),
+valid for $\theta<1/\beta$.
+
+Because the statement explicitly says $S_T\sim \Gamma(T\alpha,\beta)$, the expectation above is taken
+under the **original** (untilted) law. The optimization problem is
+$$
+\theta^*=\text{argmin}_{\,0\le \theta < 1/\beta} G(\theta).
+$$
+
+For simplicity, we wrap the parameters:
+
+$$
+k = T\alpha,\qquad \lambda = 1/\beta.
+$$
+
+Then  the density changes slightly: $S_T\sim \Gamma(k,\lambda)$:
+
+$$
+f_{S_T}(s)=\frac{\lambda^{k}}{\Gamma(k)}\, s^{k-1} e^{-\lambda s},\qquad s>0.
+$$
+
+And we can also reform the MGF:
+
+$$
+M(\theta)^T = \left(1-\beta\theta\right)^{-T\alpha}
+= (1-\beta\theta)^{-k}
+= \left(\frac{\lambda}{\lambda-\theta}\right)^{k}
+$$
+
+Now we can proceed to compute the expectation term using integration and try to simplify it:
+
+$$
+\mathbb{E}\!\left[\mathbf{1}\{S_T\ge B\}\,e^{-\theta S_T}\right]
+= \int_B^\infty e^{-\theta s}\, f_{S_T}(s)\,ds
+$$
+
+Then we get:
+
+$$
+\mathbb{E}\!\left[\mathbf{1}\{S_T\ge B\}\,e^{-\theta S_T}\right]
+= \int_B^\infty e^{-\theta s}\frac{\lambda^{k}}{\Gamma(k)}\, s^{k-1} e^{-\lambda s}\,ds
+= \frac{\lambda^{k}}{\Gamma(k)}\int_B^\infty s^{k-1} e^{-(\lambda+\theta)s}\,ds.
+$$
+
+The integral can be computed by multiplying a factor $\frac{\Gamma(k)}{(\lambda+\theta)^k}$:
+
+$$
+\int_B^\infty s^{k-1} e^{-(\lambda+\theta)s}\,ds
+= \frac{1}{(\lambda+\theta)^k}\int_B^\infty (\lambda+\theta)^k s^{k-1} e^{-(\lambda+\theta)s}\,ds.
+$$
+
+Using the gamma density for parameters $k, \text{rate}=\lambda+theta$, which is:
+
+$$
+f_{\Gamma(k,\lambda+\theta)}(s) =\frac{(\lambda+\theta)^k}{\Gamma(k)} s^{k-1} e^{-(\lambda+\theta)s}
+$$
+
+We can see the integrand in the previous integral is a Gamma density where the rate becomes $\lambda+\theta$ density times $\Gamma(k)$:
+
+$$
+(\lambda+\theta)^k s^{k-1} e^{-(\lambda+\theta)s}
+= \Gamma(k)\, f_{\Gamma(k,\lambda+\theta)}(s).
+$$
+
+So
+
+$$
+\frac{1}{(\lambda+\theta)^k}\int_B^\infty (\lambda+\theta)^k s^{k-1} e^{-(\lambda+\theta)s}\,ds.\\
+= \frac{1}{(\lambda+\theta)^k}\int_B^\infty \Gamma(k)\, f_{\Gamma(k,\lambda+\theta)}(s).\,ds.
+$$
+
+which is the same as:
+
+$$
+= \frac{\Gamma(k)}{(\lambda+\theta)^k}\mathbb{P}\!\left(\Gamma(k,\lambda+\theta)\ge B\right).
+$$
+
+Now we can go back to our original expecatation, second moment function:
+
+$$
+\mathbb{E}\!\left[\mathbf{1}\{S_T\ge B\}\,e^{-\theta S_T}\right]\\
+= \frac{\lambda^{k}}{\Gamma(k)}\int_B^\infty s^{k-1} e^{-(\lambda+\theta)s}\,ds.\\
+= \frac{\lambda^{k}}{\Gamma(k)}\frac{\Gamma(k)}{(\lambda+\theta)^k}\mathbb{P}\!\left(\Gamma(k,\lambda+\theta)\ge B\right).\\
+=\left(\frac{\lambda}{\lambda+\theta}\right)^k
+\mathbb{P}\!\left(\Gamma(k,\lambda+\theta)\ge B\right).
+$$
+
+Finally, multiply this term by $M(\theta)^T$:
+
+$$
+G(\theta)
+= M(\theta)^T\,
+\mathbb{E}\!\left[\mathbf{1}\{S_T\ge B\}\,e^{-\theta S_T}\right]
+= \left(\frac{\lambda}{\lambda-\theta}\right)^{k}
+  \left(\frac{\lambda}{\lambda+\theta}\right)^{k}
+\mathbb{P}\!\left(\Gamma(k,\lambda+\theta)\ge B\right),
+$$
+
+
+
+#### Now we can optimize this function using `optimize()`
+
+For simplicity in coding, we can write the log of $G(\theta)$:
+
+$$
+\log G(\theta)
+= k\log\!\left(\frac{\lambda}{\lambda-\theta}\right)
+ +k\log\!\left(\frac{\lambda}{\lambda+\theta}\right)
+ +\log \mathbb{P}\!\left(\Gamma(k,\lambda+\theta)\ge B\right).
+$$
+
+Keep writing out we get,
+
+$$
+\log G(\theta)
+= k\Big(2\log \lambda - \log(\lambda-\theta) - \log(\lambda+\theta)\Big)
++\log \mathbb{P}\!\left(\Gamma(k,\lambda+\theta)\ge B\right).
+$$
+#### Finally we can code this simple form in R:
+
+```{r}
+# function to compute G(theta) as we derived it earlier
+G_theta <- function(theta, T, B, alpha, beta) {
+  # we use the lambda parametrization
+  k <- T * alpha
+  lambda <- 1 / beta
+
+  if (theta < 0 || theta >= 1 / beta) return(Inf)
+  
+  # log term up to log probability
+  log_prefactor <- k * (2 * log(lambda) - log(lambda - theta) - log(lambda + theta))
+  
+  # log probability term
+  log_tail <- log(pgamma(B, shape = k, rate = lambda + theta, lower.tail = FALSE))
+  
+  # eventually we still need to exponentiate to ge the original G function
+  exp(log_prefactor + log_tail)
+}
+
+# function compute theta* using optimize()
+theta_star <- function(T, B, alpha, beta) {
+  # we use the lambda parametrization
+  lambda <- 1 / beta
+  eps <- 1e-10
+  
+  opt <- optimize(
+    f = function(th) G_theta(th, T = T, B = B, alpha = alpha, beta = beta),
+    interval = c(0, lambda - eps)
+  )
+  opt$minimum
+}
+```
+
+```{r}
+set.seed(123)
+
+# activity 2 settings
+alpha <- 1/20
+beta  <- 40
+B     <- 250
+T     <- 30
+
+theta_star <- theta_star(T, B, alpha, beta)
+theta_star
+```
+We have this optimal theta from the optimizer in R
+
+
+
+### Activity 4
+
+First we recall in activity 3 we did the density of the tilted distribution:
+
+$$
+f_\theta(x)=\frac{e^{\theta x} f(x)}{M(\theta)}.
+$$
+
+Now we will find out it is actually another Gamma distribution:
+
+Recall the density of Gamma for $\alpha$ and $\lambda=1/\beta$ is:
+
+$$
+f(x)=\frac{\lambda^\alpha}{\Gamma(\alpha)}x^{\alpha-1}e^{-\lambda x},
+\qquad x\ge 0.
+$$
+
+So we just write out this expression and see:
+
+$$
+e^{\theta x}f(x)
+=
+e^{\theta x}\frac{\lambda^\alpha}{\Gamma(\alpha)}x^{\alpha-1}e^{-\lambda x}
+=
+\frac{\lambda^\alpha}{\Gamma(\alpha)}x^{\alpha-1}e^{-(\lambda-\theta)x}.
+$$
+Now we also write out the moment generating function using the $\lambda=1/\beta$ parametrization and the MGF becomes
+
+$$
+M(\theta)
+=
+\left(\frac{\lambda}{\lambda-\theta}\right)^\alpha.
+$$
+
+
+Now we will find that the tilted density becomes:
+
+$$
+f_\theta(x)
+=
+\frac{e^{\theta x}f(x)}{M(\theta)}
+=
+\frac{\frac{\lambda^\alpha}{\Gamma(\alpha)}x^{\alpha-1}e^{-(\lambda-\theta)x}}
+{\left(\frac{\lambda}{\lambda-\theta}\right)^\alpha}
+=
+\frac{(\lambda-\theta)^\alpha}{\Gamma(\alpha)}x^{\alpha-1}e^{-(\lambda-\theta)x}.
+$$
+
+We find that it the density of a Gamma distribution with shape $\alpha$ and rate $\lambda-\theta$. Therefore,
+
+$$
+X^{(\theta)} \sim \Gamma(\alpha,\text{rate } \lambda-\theta),
+$$
+
+================================================================================
+
+Now we have acquired this identity, we can use the new density and use the weight $w_i(x) = {M({\theta}^*})^T e^{-x\theta^*}$ to sample points.
+
+```{r}
+import_sampling_tilted_exp <- function(Tau, B, alpha, beta, mc_sim_n, theta) {
+  lambda <- 1 / beta
+  # catch and throw error
+  if (theta < 0 || theta >= lambda) stop("theta out of range")
+
+  k <- Tau * alpha
+
+  # generate S_tau under the tilted distribution with rate = lambda - theta
+  S <- rgamma(mc_sim_n, shape = k, rate = lambda - theta)
+
+  # Compute log weights: w = M(theta)^T * exp(-theta * S), so log(w) = T*log(M) - theta*S
+  ## first compute log M(theta) = alpha*log(lambda/(lambda-theta))
+  #logM <- -alpha * log(1 - beta * theta)
+  logM <- alpha*(log(lambda) - log(lambda-theta))
+  logw <- Tau * logM - theta * S
+  
+  # empirical probability
+  return(mean(exp(logw) * (S >= B)))
+}
+```
+
+
+```{r}
+
+# Use lapply to run 
+compare_is_for_ns <- function(tau, B, alpha, beta, mc_sim_n_grid, theta, R = 100) {
+  out <- lapply(seq_along(n_grid), function(j) {
+    # grab n
+    mc_sim_n <- mc_sim_n_grid[j]
+    # run n simulations 
+    est <- replicate(R, import_sampling_tilted_exp(tau, B, alpha, beta, mc_sim_n, theta))
+    reps <- list(mean = mean(est), sd = sd(est), var = var(est), all = est)
+    # create a dataframe to store the results
+    data.frame(mc_sim_n = mc_sim_n, mean = reps$mean, sd = reps$sd, var = reps$var)
+  })
+  do.call(rbind, out)
+}
+```
+
+#### Simulation 4.2
+
+```{r}
+set.seed(123)
+
+# still the settings from p2
+tau <- 30
+B <- 250
+alpha <- 1/20
+beta <- 40
+
+mc_sim_n_grid <- c(1000, 2000, 4000, 8000, 16000, 32000, 64000)
+
+# we feed the theta_star we found in activity 3
+summary_df_tilted <- compare_is_for_ns(tau, B, alpha, beta, mc_sim_n_grid, theta_star, R = 100)
+summary_df_tilted
+```
+
+
+#### Now we plot the sampling distribution using tilted exponential
+
+```{r}
+plot(summary_df_tilted$mc_sim_n, summary_df_tilted$mean,
+     log = "x", pch = 16, ylim=c(0.003,0.009),
+     xlab = "Number of MC simulations (mc_sim_n, log scale)",
+     ylab = "Estimated P(T <= 30)")
+
+arrows(summary_df_tilted$mc_sim_n,
+       summary_df_tilted$mean - summary_df_tilted$sd,
+       summary_df_tilted$mc_sim_n,
+       summary_df_tilted$mean + summary_df_tilted$sd,
+       angle = 90, code = 3, length = 0.05)
+```
+
+
+We can see the variance is actually much smaller than not using tilted exponential. This is because we are more likely to sample points from the tail of the distribution when the distribution is tilted. So we don't need to sample that much to observe one hit. And we are able to recover the original distribution by weighing the samples.
+
+
+### Activity 5
+
+```{r}
+set.seed(123)
+
+# Modify the funciton in activity 2 to use antithetic variates
+steps_to_hit_B_antiVar <- function(B, shape, scale, max_t) {
+
+  # generate U and compute 1-U
+  u <- runif(max_t, 0, 1)
+  u_inv <- 1 - u
+  # inverse CDF sampling using q function
+  X_ts <- qgamma(u, shape=shape, scale=scale)
+  X_prime_ts <- qgamma(u_inv, shape=shape, scale=scale)
+  
+  # use built-in cumsum function to get cumulative sum at each step for both X_ts and X_prime_ts
+  progress <- cumsum(X_ts)
+  progress_prime <- cumsum(X_prime_ts)
+  
+  # check which step hits B first and returns Inf if not reached
+  Tau <- ifelse(!is.na(which(progress >= B)[1]), which(progress >= B)[1], Inf)
+  Tau_prime <- ifelse(!is.na(which(progress_prime >= B)[1]), which(progress_prime >= B)[1], Inf)
+  
+  return(c(Tau = Tau, Tau_prime = Tau_prime))
+}
+```
+
+
+```{r}
+# modify the function in activity 2 for antithetic variates
+mc_estimate_p_antiVar <- function(tau, B, shape, scale, mc_sim_n, max_t) {
+  if (!is.numeric(tau) || length(tau) != 1 || is.na(tau) || tau < 1) {
+    stop("tau must be s.t. tau >= 1.")
+  }
+  if (!is.numeric(max_t) || length(max_t) != 1 || is.na(max_t) || max_t < tau) {
+    stop("max_t must be s.t. max_t >= tau.")
+  }
+  # 
+  # simulate probability
+  mc_sims_pair <- replicate(floor(mc_sim_n/2), steps_to_hit_B_antiVar(B, shape, scale, max_t))
+  hits <- (mc_sims_pair["Tau",] <= tau)
+  hits_prime <- (mc_sims_pair['Tau_prime',] <= tau)
+  
+  # use the key property in Antithetic variates
+  average_hits <- mean((hits + hits_prime) / 2)
+  return(average_hits)
+}
+```
+
+
+#### Simulation 5.1 (Acvitity 2 settings)
+
+```{r}
+set.seed(123)
+
+alpha <- 1/20
+beta  <- 40
+B     <- 250
+tau   <- 30
+
+mc_sim_n <- 1000
+estimates_100 <- replicate(100, mc_estimate_p_antiVar(tau, B, alpha, beta, mc_sim_n, max_t = tau))
+
+avg_est <- mean(estimates_100)
+var_est <- var(estimates_100)
+avg_est
+var_est
+```
+
+#### Simulation 5.2, grid
+
+```{r}
+mc_grid <- c(1000, 2000, 4000, 8000, 16000, 32000, 64000)
+
+set.seed(123)
+summary_df <- do.call(rbind, lapply(mc_grid, function(n) {
+  ests <- replicate(100, mc_estimate_p_antiVar(tau, B, alpha, beta, n, max_t = tau))
+  data.frame(
+    mc_sim_n = n,
+    mean_est = mean(ests),
+    sd_est   = sd(ests),
+    var_est  = var(ests)
+  )
+}))
+
+print(summary_df)
+```
+
+#### Plot simulation 5.2
+
+```{r}
+plot(summary_df$mc_sim_n, summary_df$mean_est,
+     log = "x", pch = 16, ylim=c(0.003,0.009),
+     xlab = "Number of MC simulations (mc_sim_n, log scale)",
+     ylab = "Estimated P(T <= 30)")
+
+arrows(summary_df$mc_sim_n,
+       summary_df$mean_est - summary_df$sd_est,
+       summary_df$mc_sim_n,
+       summary_df$mean_est + summary_df$sd_est,
+       angle = 90, code = 3, length = 0.05)
+```
+
+Unfortunately, we did not observe a significant variance reduction compared with Activity 2. And the code takes much longer to run. My understanding of this is that first it takes so long to run because of the quantile function (inverse CDF). And I think the variance reduction is supposed to come from the negative covariance between the antithetic variates, but here the covariance between $X$ and $X^{'}$ is very small in magnitude?
+
+
